@@ -1,9 +1,169 @@
 <!DOCTYPE html>
-<html>
-  <head><title>Elon Bot</title></head>
-  <body>
-    <script>
-      window.location.href = '/api/markets';
-    </script>
-  </body>
-</html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Elon Bot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #080f17; color: #e0e0e0; font-family: system-ui; padding: 24px; }
+    h1 { color: #fff; font-size: 22px; margin-bottom: 4px; }
+    .sub { color: #555; font-size: 12px; margin-bottom: 24px; }
+    .market { background: #0d1b2a; border: 1px solid #1a2a3a; border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+    .market.optimal { border-color: #2a6a3a; }
+    .badge { background: #0a3a1a; color: #00c853; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; display: inline-block; margin-bottom: 8px; }
+    .question { font-weight: 600; font-size: 14px; margin-bottom: 12px; }
+    .outcomes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .outcome { background: #1a2a3a; border-radius: 8px; padding: 6px 12px; font-size: 12px; }
+    .outcome span { color: #4a9eff; font-weight: 700; }
+    .time { color: #ffb300; font-weight: 700; font-size: 13px; }
+    .calc { background: #0a1520; border: 1px solid #1e3a5f; border-radius: 12px; padding: 16px; margin-top: 12px; }
+    .calc-title { color: #4a9eff; font-weight: 700; font-size: 13px; margin-bottom: 12px; }
+    .calc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    label { color: #888; font-size: 11px; display: block; margin-bottom: 4px; }
+    input, select { width: 100%; background: #1a2a3a; border: 1px solid #2a4a6a; border-radius: 8px; color: #fff; padding: 8px 10px; font-size: 13px; }
+    .result { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #080f17; border-radius: 10px; padding: 14px; text-align: center; }
+    .result-label { color: #888; font-size: 11px; margin-bottom: 4px; }
+    .result-val { font-weight: 700; font-size: 18px; }
+    .green { color: #00c853; }
+    .yellow { color: #ffb300; }
+    .blue { color: #4a9eff; }
+    .toggle { color: #333; font-size: 11px; margin-top: 10px; cursor: pointer; text-align: right; }
+    button { background: #1a2a3a; border: none; color: #4a9eff; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    #status { color: #555; font-size: 11px; }
+    #empty { color: #555; text-align: center; padding: 60px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>⚡ Elon Bot</h1>
+      <div class="sub">Polymarket · Mercados en tiempo real</div>
+    </div>
+    <div>
+      <div id="status"></div>
+      <button onclick="load()" style="margin-top:6px">🔄 Actualizar</button>
+    </div>
+  </div>
+  <div id="markets"></div>
+
+  <script>
+    function timeLeft(endDate) {
+      const diff = new Date(endDate) - new Date();
+      if (diff < 0) return "Terminado";
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      if (h > 48) return Math.floor(h/24) + "d " + (h%24) + "h";
+      if (h > 0) return h + "h " + m + "m";
+      return m + "m";
+    }
+
+    function isOptimal(endDate) {
+      const diff = new Date(endDate) - new Date();
+      const h = diff / 3600000;
+      return h > 1 && h < 36;
+    }
+
+    function calcB(a, p2) {
+      return a / (1/p2 - 1);
+    }
+
+    function renderCalc(outcomes, id) {
+      return `
+        <div class="calc">
+          <div class="calc-title">⚡ Calculadora de Cobertura Asimétrica</div>
+          <div class="calc-grid">
+            <div>
+              <label>Rango PROBABLE (A)</label>
+              <select id="selA_${id}" onchange="recalc('${id}')">
+                <option value="">Seleccionar...</option>
+                ${outcomes.map(o => `<option value="${o.price}">${o.title} — ${(o.price*100).toFixed(1)}%</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label>Rango IMPROBABLE (B)</label>
+              <select id="selB_${id}" onchange="recalc('${id}')">
+                <option value="">Seleccionar...</option>
+                ${outcomes.map(o => `<option value="${o.price}">${o.title} — ${(o.price*100).toFixed(1)}%</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="calc-grid">
+            <div>
+              <label>Inversión en A (USD)</label>
+              <input type="number" id="inpA_${id}" placeholder="Ej: 50" oninput="recalc('${id}')">
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <div style="color:#555;font-size:11px;padding-bottom:10px">B = A ÷ (1/P2 - 1)</div>
+            </div>
+          </div>
+          <div class="result" id="res_${id}" style="display:none">
+            <div><div class="result-label">Invertir en B</div><div class="result-val blue" id="resB_${id}"></div></div>
+            <div><div class="result-label">Si gana A</div><div class="result-val green" id="resA_${id}"></div></div>
+            <div><div class="result-label">Si gana B</div><div class="result-val yellow" id="resR_${id}"></div></div>
+          </div>
+        </div>`;
+    }
+
+    function recalc(id) {
+      const pA = parseFloat(document.getElementById('selA_'+id)?.value);
+      const pB = parseFloat(document.getElementById('selB_'+id)?.value);
+      const a = parseFloat(document.getElementById('inpA_'+id)?.value);
+      const res = document.getElementById('res_'+id);
+      if (!pA || !pB || !a || pB >= 1) { res.style.display='none'; return; }
+      const b = calcB(a, pB);
+      const total = a + b;
+      const ifA = (a / pA) - total;
+      const ifB = (b / pB) - total;
+      document.getElementById('resB_'+id).textContent = '$' + b.toFixed(2);
+      document.getElementById('resA_'+id).textContent = (ifA>=0?'+':'') + '$' + ifA.toFixed(2);
+      document.getElementById('resR_'+id).textContent = (ifB>=0?'+':'') + '$' + ifB.toFixed(2);
+      res.style.display = 'grid';
+    }
+
+    window.toggleCalc = function(id) {
+      const el = document.getElementById('calc_'+id);
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function load() {
+      document.getElementById('status').textContent = 'Actualizando...';
+      try {
+        const res = await fetch('/api/markets');
+        const data = await res.json();
+        const elon = data.filter(m => {
+          const q = (m.question||'').toLowerCase();
+          return (q.includes('elon')||q.includes('musk')) && (q.includes('tweet')||q.includes('post')||q.includes('x.com'));
+        });
+        const container = document.getElementById('markets');
+        if (!elon.length) { container.innerHTML = '<div id="empty">No hay mercados activos de Elon ahora.</div>'; return; }
+        container.innerHTML = elon.map(m => {
+          const outcomes = (m.tokens||[]).map(t => ({title: t.outcome, price: parseFloat(t.price)})).filter(o => o.price);
+          const tl = timeLeft(m.endDate);
+          const opt = isOptimal(m.endDate);
+          return `
+            <div class="market ${opt?'optimal':''}">
+              ${opt ? '<div class="badge">✓ VENTANA DE ENTRADA</div>' : ''}
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <div class="question">${m.question}</div>
+                <div class="time" style="flex-shrink:0;margin-left:12px">${tl}</div>
+              </div>
+              <div class="outcomes">
+                ${outcomes.map(o => `<div class="outcome">${o.title}: <span>${(o.price*100).toFixed(1)}%</span></div>`).join('')}
+              </div>
+              <div id="calc_${m.id}" style="display:none">${renderCalc(outcomes, m.id)}</div>
+              <div class="toggle" onclick="toggleCalc('${m.id}')">▼ abrir calculadora</div>
+            </div>`;
+        }).join('');
+        document.getElementById('status').textContent = 'Actualizado: ' + new Date().toLocaleTimeString();
+      } catch(e) {
+        document.getElementById('status').textContent = 'Error al cargar';
+      }
+    }
+
+    load();
+    setInterval(load, 60000);
+  </script>
+</body>
+  </html>
