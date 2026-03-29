@@ -133,7 +133,7 @@
         const res = await fetch('/api/markets');
         const data = await res.json();
         const markets = data.flatMap(e => e.markets || []);
-const elon = markets.filter(m => {
+        const elon = markets.filter(m => {
           const q = (m.question||'').toLowerCase();
           return q.includes('elon') || q.includes('musk');
         });
