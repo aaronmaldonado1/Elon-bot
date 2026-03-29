@@ -134,7 +134,7 @@
         const data = await res.json();
         const elon = data.filter(m => {
           const q = (m.question||'').toLowerCase();
-          return (q.includes('elon')||q.includes('musk')) && (q.includes('tweet')||q.includes('post')||q.includes('x.com'));
+          return q.includes('elon') || q.includes('musk');
         });
         const container = document.getElementById('markets');
         if (!elon.length) { container.innerHTML = '<div id="empty">No hay mercados activos de Elon ahora.</div>'; return; }
